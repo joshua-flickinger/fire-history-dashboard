@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sequoia + Kings Canyon Fire History</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <p class="kicker">Sequoia + Kings Canyon National Parks</p>
+      <h1>Fire History Dashboard</h1>
+      <p id="statusText" class="subtitle">Loading fire history records...</p>
+    </header>
+
+    <section class="panel controls-panel">
+      <div class="controls-intro">
+        <h2>Filter Fire Records</h2>
+        <p>Use these filters to narrow the dataset. Start with year and acres, then refine by response, cause, and fire name.</p>
+      </div>
+
+      <div class="controls-name-row">
+        <label>
+          Fire name contains
+          <input id="nameSearch" type="search" placeholder="Type part of a fire name">
+        </label>
+      </div>
+
+      <div class="controls-grid">
+        <label>
+          Start year
+          <input id="startYear" type="range">
+          <input id="startYearNumber" type="number">
+        </label>
+
+        <label>
+          End year
+          <input id="endYear" type="range">
+          <input id="endYearNumber" type="number">
+        </label>
+
+        <label>
+          Response type
+          <select id="responseSelect"></select>
+        </label>
+
+        <label>
+          General cause
+          <select id="causeSelect"></select>
+        </label>
+
+        <label>
+          Minimum acres
+          <input id="minAcres" type="range">
+          <input id="minAcresNumber" type="number" min="0" step="1">
+        </label>
+
+        <label>
+          Maximum acres
+          <input id="maxAcres" type="range">
+          <input id="maxAcresNumber" type="number" min="0" step="1">
+        </label>
+      </div>
+
+      <div class="control-actions">
+        <button id="resetBtn" type="button">Reset filters</button>
+        <button id="exportBtn" type="button">Export filtered CSV</button>
+      </div>
+
+      <div id="fileFallback" class="file-fallback hidden">
+        <p>Could not fetch <code>data/fire_history.csv</code>. Choose the file manually.</p>
+        <input id="fileInput" type="file" accept=".csv,text/csv">
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="panel stat-card">
+        <h2>Total Fires</h2>
+        <p id="totalFires" class="stat-value">-</p>
+        <p id="totalFiresWildfire" class="stat-sub">Wildfires: -</p>
+        <p id="totalFiresPrescribed" class="stat-sub">Prescribed Fires: -</p>
+      </article>
+      <article class="panel stat-card">
+        <h2>Total Acres</h2>
+        <p id="totalAcres" class="stat-value">-</p>
+        <p id="totalAcresWildfire" class="stat-sub">Wildfires: -</p>
+        <p id="totalAcresPrescribed" class="stat-sub">Prescribed Fires: -</p>
+      </article>
+      <article class="panel stat-card">
+        <h2>Average Annual Number</h2>
+        <p id="averageAnnualFires" class="stat-value">-</p>
+        <p id="averageAnnualWildfires" class="stat-sub">Wildfires: -</p>
+        <p id="averageAnnualPrescribed" class="stat-sub">Prescribed Fires: -</p>
+      </article>
+      <article class="panel stat-card">
+        <h2>Lightning Ignitions</h2>
+        <p id="lightningPct" class="stat-value">-</p>
+      </article>
+      <article class="panel stat-card">
+        <h2>Managed Fires (FireUse=Yes)</h2>
+        <p id="managedPct" class="stat-value">-</p>
+      </article>
+    </section>
+
+    <section class="panel size-panel">
+      <h2>Fire Size Metrics (Acres)</h2>
+      <div class="size-layout">
+        <div class="size-table-wrap">
+          <table class="size-table">
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th>Average</th>
+                <th>Std Dev</th>
+                <th>Min</th>
+                <th>Median</th>
+                <th>Mode</th>
+                <th>Max</th>
+              </tr>
+            </thead>
+            <tbody id="sizeStatsBody"></tbody>
+          </table>
+        </div>
+        <div class="size-plot-wrap">
+          <h3>Size Distribution (Violin-Style, Log Scale)</h3>
+          <canvas id="sizeViolinChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="chart-section wildfire-section">
+      <h2 class="section-title">Wildfires</h2>
+      <p class="section-subtitle">Unplanned fire activity (excluding prescribed fire records).</p>
+      <div class="charts-grid">
+        <article class="panel chart-card">
+          <h2>Fires by Year</h2>
+          <canvas id="wildfireFiresByYearChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Acres Burned by Year</h2>
+          <canvas id="wildfireAcresByYearChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Fire Starts by Month</h2>
+          <canvas id="wildfireMonthChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Top General Causes</h2>
+          <div id="wildfireCauseBars" class="cause-bars"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="chart-section prescribed-section">
+      <h2 class="section-title">Prescribed Fires</h2>
+      <p class="section-subtitle">Planned fire activity used for fuels treatment and restoration objectives.</p>
+      <div class="charts-grid">
+        <article class="panel chart-card">
+          <h2>Fires by Year</h2>
+          <canvas id="prescribedFiresByYearChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Acres Burned by Year</h2>
+          <canvas id="prescribedAcresByYearChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Fire Starts by Month</h2>
+          <canvas id="prescribedMonthChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Top Specific Causes</h2>
+          <div id="prescribedCauseBars" class="cause-bars"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel table-panel">
+      <h2>Largest Fires in Current Filter</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Year</th>
+              <th>Fire Name</th>
+              <th>Acres</th>
+              <th>Response</th>
+              <th>General Cause</th>
+              <th>Start Date</th>
+            </tr>
+          </thead>
+          <tbody id="largestFiresBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
