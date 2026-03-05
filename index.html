@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sequoia + Kings Canyon Fire History</title>
+  <title>Sequoia and Kings Canyon Fire History</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="page-shell">
     <header class="hero">
-      <p class="kicker">Sequoia + Kings Canyon National Parks</p>
+      <p class="kicker">Sequoia and Kings Canyon National Parks</p>
       <h1>Fire History Dashboard</h1>
       <p id="statusText" class="subtitle">Loading fire history records...</p>
     </header>
@@ -41,16 +41,6 @@
         </label>
 
         <label>
-          Response type
-          <select id="responseSelect"></select>
-        </label>
-
-        <label>
-          General cause
-          <select id="causeSelect"></select>
-        </label>
-
-        <label>
           Minimum acres
           <input id="minAcres" type="range">
           <input id="minAcresNumber" type="number" min="0" step="1">
@@ -60,6 +50,16 @@
           Maximum acres
           <input id="maxAcres" type="range">
           <input id="maxAcresNumber" type="number" min="0" step="1">
+        </label>
+
+        <label>
+          Response type
+          <select id="responseSelect"></select>
+        </label>
+
+        <label>
+          General cause
+          <select id="causeSelect"></select>
         </label>
       </div>
 
@@ -82,20 +82,22 @@
         <p id="totalFiresPrescribed" class="stat-sub">Prescribed Fires: -</p>
       </article>
       <article class="panel stat-card">
-        <h2>Total Acres</h2>
-        <p id="totalAcres" class="stat-value">-</p>
-        <p id="totalAcresWildfire" class="stat-sub">Wildfires: -</p>
-        <p id="totalAcresPrescribed" class="stat-sub">Prescribed Fires: -</p>
-      </article>
-      <article class="panel stat-card">
         <h2>Average Annual Number</h2>
         <p id="averageAnnualFires" class="stat-value">-</p>
         <p id="averageAnnualWildfires" class="stat-sub">Wildfires: -</p>
         <p id="averageAnnualPrescribed" class="stat-sub">Prescribed Fires: -</p>
       </article>
       <article class="panel stat-card">
-        <h2>Lightning Ignitions</h2>
-        <p id="lightningPct" class="stat-value">-</p>
+        <h2>Total Acres</h2>
+        <p id="totalAcres" class="stat-value">-</p>
+        <p id="totalAcresWildfire" class="stat-sub">Wildfires: -</p>
+        <p id="totalAcresPrescribed" class="stat-sub">Prescribed Fires: -</p>
+      </article>
+      <article class="panel stat-card">
+        <h2>Average Annual Acres</h2>
+        <p id="averageAnnualAcres" class="stat-value">-</p>
+        <p id="averageAnnualAcresWildfires" class="stat-sub">Wildfires: -</p>
+        <p id="averageAnnualAcresPrescribed" class="stat-sub">Prescribed Fires: -</p>
       </article>
       <article class="panel stat-card">
         <h2>Managed Fires (FireUse=Yes)</h2>
@@ -115,7 +117,6 @@
                 <th>Std Dev</th>
                 <th>Min</th>
                 <th>Median</th>
-                <th>Mode</th>
                 <th>Max</th>
               </tr>
             </thead>
@@ -149,6 +150,16 @@
         </article>
 
         <article class="panel chart-card">
+          <h2>Fire Duration to Out Date (Days)</h2>
+          <canvas id="wildfireDurationChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Fire Locations (Lat/Long)</h2>
+          <canvas id="wildfireMapChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
           <h2>Top General Causes</h2>
           <div id="wildfireCauseBars" class="cause-bars"></div>
         </article>
@@ -172,6 +183,16 @@
         <article class="panel chart-card">
           <h2>Fire Starts by Month</h2>
           <canvas id="prescribedMonthChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Fire Duration to Out Date (Days)</h2>
+          <canvas id="prescribedDurationChart"></canvas>
+        </article>
+
+        <article class="panel chart-card">
+          <h2>Fire Locations (Lat/Long)</h2>
+          <canvas id="prescribedMapChart"></canvas>
         </article>
 
         <article class="panel chart-card">

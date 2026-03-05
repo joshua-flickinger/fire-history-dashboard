@@ -1,4 +1,5 @@
 const CSV_PATH = "data/fire_history.csv";
+const SEKI_BOUNDARY_GEOJSON_URL = "https://services1.arcgis.com/fBc8EJBxQRMcHlei/arcgis/rest/services/SEKI_ParkAtlas1_4_VisitingtheParks_MASTER/FeatureServer/10/query?where=1%3D1&outFields=*&outSR=4326&f=geojson";
 
 const state = {
   raw: [],
@@ -6,7 +7,8 @@ const state = {
   minYear: null,
   maxYear: null,
   minAcre: 0,
-  maxAcre: 0
+  maxAcre: 0,
+  boundaryRings: null
 };
 const tooltipState = new WeakMap();
 let tooltipEl = null;
@@ -54,17 +56,23 @@ const el = {
   averageAnnualFires: document.getElementById("averageAnnualFires"),
   averageAnnualWildfires: document.getElementById("averageAnnualWildfires"),
   averageAnnualPrescribed: document.getElementById("averageAnnualPrescribed"),
-  lightningPct: document.getElementById("lightningPct"),
+  averageAnnualAcres: document.getElementById("averageAnnualAcres"),
+  averageAnnualAcresWildfires: document.getElementById("averageAnnualAcresWildfires"),
+  averageAnnualAcresPrescribed: document.getElementById("averageAnnualAcresPrescribed"),
   managedPct: document.getElementById("managedPct"),
   sizeStatsBody: document.getElementById("sizeStatsBody"),
   sizeViolinChart: document.getElementById("sizeViolinChart"),
   wildfireFiresByYearChart: document.getElementById("wildfireFiresByYearChart"),
   wildfireAcresByYearChart: document.getElementById("wildfireAcresByYearChart"),
   wildfireMonthChart: document.getElementById("wildfireMonthChart"),
+  wildfireDurationChart: document.getElementById("wildfireDurationChart"),
+  wildfireMapChart: document.getElementById("wildfireMapChart"),
   wildfireCauseBars: document.getElementById("wildfireCauseBars"),
   prescribedFiresByYearChart: document.getElementById("prescribedFiresByYearChart"),
   prescribedAcresByYearChart: document.getElementById("prescribedAcresByYearChart"),
   prescribedMonthChart: document.getElementById("prescribedMonthChart"),
+  prescribedDurationChart: document.getElementById("prescribedDurationChart"),
+  prescribedMapChart: document.getElementById("prescribedMapChart"),
   prescribedCauseBars: document.getElementById("prescribedCauseBars"),
   largestFiresBody: document.getElementById("largestFiresBody")
 };
@@ -74,6 +82,7 @@ init();
 async function init() {
   ensureTooltipElement();
   bindEvents();
+  loadBoundaryGeometry();
 
   try {
     const csvText = await loadCsv(CSV_PATH);
@@ -81,6 +90,23 @@ async function init() {
   } catch (error) {
     el.statusText.textContent = "Auto-load failed. Choose the CSV manually below.";
     el.fileFallback.classList.remove("hidden");
+  }
+}
+
+async function loadBoundaryGeometry() {
+  try {
+    const response = await fetch(SEKI_BOUNDARY_GEOJSON_URL);
+    if (!response.ok) return;
+    const geojson = await response.json();
+    const rings = extractBoundaryRings(geojson);
+    if (!rings.length) return;
+    state.boundaryRings = rings;
+    if (state.raw.length) {
+      const split = splitRecords(state.filtered);
+      renderSplitCharts(split);
+    }
+  } catch (error) {
+    // If boundary fetch fails (network/CORS), map charts still render point data.
   }
 }
 
@@ -130,6 +156,7 @@ function bindEvents() {
     const split = splitRecords(state.filtered);
     renderSplitCharts(split);
     renderSizeViolin(split);
+    hideTooltip();
   }, 100));
 }
 
@@ -324,10 +351,6 @@ function applyFilters() {
 function renderDashboard(records, rawCount) {
   const totalFires = records.length;
   const totalAcres = sum(records.map((record) => record.acres));
-  const lightningCount = records.filter((record) => {
-    const specific = record.specificCause.toLowerCase();
-    return specific.includes("lightning") || record.generalCause === "Natural";
-  }).length;
   const managedCount = records.filter((record) => record.fireUse === "Yes").length;
   const split = splitRecords(records);
   const wildfireAcres = sum(split.wildfires.map((record) => record.acres));
@@ -336,6 +359,9 @@ function renderDashboard(records, rawCount) {
   const avgAnnualNumber = totalFires / yearSpan;
   const avgAnnualWildfires = split.wildfires.length / yearSpan;
   const avgAnnualPrescribed = split.prescribed.length / yearSpan;
+  const avgAnnualAcres = totalAcres / yearSpan;
+  const avgAnnualWildfireAcres = wildfireAcres / yearSpan;
+  const avgAnnualPrescribedAcres = prescribedAcres / yearSpan;
 
   el.totalFires.textContent = numberFormat.format(totalFires);
   el.totalFiresWildfire.textContent = `Wildfires: ${numberFormat.format(split.wildfires.length)}`;
@@ -346,7 +372,9 @@ function renderDashboard(records, rawCount) {
   el.averageAnnualFires.textContent = `${oneDecimalFormat.format(avgAnnualNumber)} fires/yr`;
   el.averageAnnualWildfires.textContent = `Wildfires: ${oneDecimalFormat.format(avgAnnualWildfires)} fires/yr`;
   el.averageAnnualPrescribed.textContent = `Prescribed Fires: ${oneDecimalFormat.format(avgAnnualPrescribed)} fires/yr`;
-  el.lightningPct.textContent = totalFires ? `${Math.round((lightningCount / totalFires) * 100)}%` : "0%";
+  el.averageAnnualAcres.textContent = `${numberFormat.format(Math.round(avgAnnualAcres))} ac/yr`;
+  el.averageAnnualAcresWildfires.textContent = `Wildfires: ${numberFormat.format(Math.round(avgAnnualWildfireAcres))} ac/yr`;
+  el.averageAnnualAcresPrescribed.textContent = `Prescribed Fires: ${numberFormat.format(Math.round(avgAnnualPrescribedAcres))} ac/yr`;
   el.managedPct.textContent = totalFires ? `${Math.round((managedCount / totalFires) * 100)}%` : "0%";
 
   const currentStart = el.startYear.value;
@@ -362,21 +390,27 @@ function renderSplitCharts(split) {
   renderCharts(split.wildfires, {
     firesByYearCanvas: el.wildfireFiresByYearChart,
     acresByYearCanvas: el.wildfireAcresByYearChart,
-    monthCanvas: el.wildfireMonthChart
+    monthCanvas: el.wildfireMonthChart,
+    durationCanvas: el.wildfireDurationChart,
+    mapCanvas: el.wildfireMapChart
   }, {
     firesColor: "#2f6f4f",
     acresColor: "#c6672d",
-    monthColor: "#1f7a87"
+    monthColor: "#1f7a87",
+    mapColor: "#2f6f4f"
   });
 
   renderCharts(split.prescribed, {
     firesByYearCanvas: el.prescribedFiresByYearChart,
     acresByYearCanvas: el.prescribedAcresByYearChart,
-    monthCanvas: el.prescribedMonthChart
+    monthCanvas: el.prescribedMonthChart,
+    durationCanvas: el.prescribedDurationChart,
+    mapCanvas: el.prescribedMapChart
   }, {
     firesColor: "#845936",
     acresColor: "#ba5a1d",
-    monthColor: "#2f8a62"
+    monthColor: "#2f8a62",
+    mapColor: "#ba5a1d"
   });
 
   renderCauseBars(split.wildfires, el.wildfireCauseBars, "generalCause");
@@ -416,6 +450,38 @@ function renderCharts(records, chartTargets, palette) {
     color: palette.monthColor,
     yFormatter: (value) => numberFormat.format(value),
     tooltipFormatter: (value) => `${numberFormat.format(Math.round(value))} fires`
+  });
+
+  const durationValues = records
+    .map((record) => record.durationDays)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+
+  if (!durationValues.length) {
+    drawBarChart(chartTargets.durationCanvas, ["No data"], [0], {
+      color: "#9a9a9a",
+      yFormatter: (value) => numberFormat.format(value),
+      tooltipFormatter: () => "No records with valid start/out dates"
+    });
+    return;
+  }
+
+  const maxDuration = Math.max(...durationValues);
+  const durationRange = buildYearRange(0, maxDuration);
+  const durationCounts = new Array(durationRange.length).fill(0);
+  durationValues.forEach((days) => {
+    const idx = Math.max(0, Math.min(maxDuration, days));
+    durationCounts[idx] += 1;
+  });
+
+  drawBarChart(chartTargets.durationCanvas, durationRange.map(String), durationCounts, {
+    color: "#7f6a50",
+    yFormatter: (value) => numberFormat.format(value),
+    tooltipFormatter: (value) => `${numberFormat.format(Math.round(value))} fires`
+  });
+
+  drawMapPlot(chartTargets.mapCanvas, records, {
+    pointColor: palette.mapColor,
+    boundaryColor: "#5f6f66"
   });
 }
 
@@ -486,7 +552,6 @@ function renderSizeMetrics(records, split) {
       <td>${numberFormat.format(Math.round(stats.stdDev))} ac</td>
       <td>${numberFormat.format(Math.round(stats.min))} ac</td>
       <td>${numberFormat.format(Math.round(stats.median))} ac</td>
-      <td>${Number.isFinite(stats.mode) ? `${numberFormat.format(Math.round(stats.mode))} ac` : "n/a"}</td>
       <td>${numberFormat.format(Math.round(stats.max))} ac</td>
     `;
     el.sizeStatsBody.append(tr);
@@ -783,6 +848,152 @@ function drawViolinPlot(canvas, groups) {
   });
 }
 
+function drawMapPlot(canvas, records, options) {
+  if (!canvas) return;
+  const points = records
+    .filter((record) => Number.isFinite(record.lat) && Number.isFinite(record.lon))
+    .map((record) => ({ lat: record.lat, lon: record.lon }));
+
+  const rings = state.boundaryRings || [];
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 600;
+  const height = canvas.clientHeight || 250;
+
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  if (!points.length && !rings.length) {
+    ctx.fillStyle = "#5f6f66";
+    ctx.font = "13px 'Avenir Next', sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("No coordinate data in current filter.", width / 2, height / 2);
+    registerTooltip(canvas, null);
+    return;
+  }
+
+  const allLons = [];
+  const allLats = [];
+  points.forEach((point) => {
+    allLons.push(point.lon);
+    allLats.push(point.lat);
+  });
+  rings.forEach((ring) => {
+    ring.forEach(([lon, lat]) => {
+      allLons.push(lon);
+      allLats.push(lat);
+    });
+  });
+
+  let minLon = Math.min(...allLons);
+  let maxLon = Math.max(...allLons);
+  let minLat = Math.min(...allLats);
+  let maxLat = Math.max(...allLats);
+
+  if (minLon === maxLon) {
+    minLon -= 0.01;
+    maxLon += 0.01;
+  }
+  if (minLat === maxLat) {
+    minLat -= 0.01;
+    maxLat += 0.01;
+  }
+
+  const lonPad = (maxLon - minLon) * 0.06;
+  const latPad = (maxLat - minLat) * 0.06;
+  minLon -= lonPad;
+  maxLon += lonPad;
+  minLat -= latPad;
+  maxLat += latPad;
+
+  const left = 44;
+  const right = 10;
+  const top = 12;
+  const bottom = 28;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+
+  const project = (lon, lat) => {
+    const x = left + ((lon - minLon) / (maxLon - minLon)) * plotWidth;
+    const y = top + ((maxLat - lat) / (maxLat - minLat)) * plotHeight;
+    return { x, y };
+  };
+
+  ctx.fillStyle = "#f6f0e2";
+  ctx.fillRect(left, top, plotWidth, plotHeight);
+  ctx.strokeStyle = "#d4c7ae";
+  ctx.strokeRect(left, top, plotWidth, plotHeight);
+
+  if (rings.length) {
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = options.boundaryColor || "#5f6f66";
+    ctx.fillStyle = "rgba(95, 111, 102, 0.12)";
+    rings.forEach((ring) => {
+      if (ring.length < 3) return;
+      ctx.beginPath();
+      ring.forEach(([lon, lat], idx) => {
+        const p = project(lon, lat);
+        if (idx === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  ctx.fillStyle = withAlpha(options.pointColor || "#2f6f4f", 0.6);
+  points.forEach((point) => {
+    const p = project(point.lon, point.lat);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = "#5f6f66";
+  ctx.font = "11px 'Avenir Next', sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(`Lon ${minLon.toFixed(2)} to ${maxLon.toFixed(2)}`, left, height - 9);
+  ctx.textAlign = "right";
+  ctx.fillText(`Lat ${minLat.toFixed(2)} to ${maxLat.toFixed(2)}`, width - right, height - 9);
+
+  registerTooltip(canvas, {
+    type: "map",
+    left,
+    top,
+    right: width - right,
+    bottom: top + plotHeight,
+    points
+  });
+}
+
+function extractBoundaryRings(geojson) {
+  if (!geojson || !Array.isArray(geojson.features)) return [];
+  const rings = [];
+  geojson.features.forEach((feature) => {
+    const geom = feature?.geometry;
+    if (!geom) return;
+    if (geom.type === "Polygon" && Array.isArray(geom.coordinates)) {
+      geom.coordinates.forEach((ring) => {
+        if (Array.isArray(ring) && ring.length > 2) rings.push(ring);
+      });
+    }
+    if (geom.type === "MultiPolygon" && Array.isArray(geom.coordinates)) {
+      geom.coordinates.forEach((polygon) => {
+        if (!Array.isArray(polygon)) return;
+        polygon.forEach((ring) => {
+          if (Array.isArray(ring) && ring.length > 2) rings.push(ring);
+        });
+      });
+    }
+  });
+  return rings;
+}
+
 function registerTooltip(canvas, config) {
   if (!canvas) return;
   if (!config) {
@@ -849,19 +1060,23 @@ function handleTooltipMove(event) {
       return;
     }
 
-    const modeText = Number.isFinite(match.stats.mode)
-      ? `${numberFormat.format(Math.round(match.stats.mode))} ac`
-      : "n/a";
     showTooltip(
       `${match.label}
 Count: ${numberFormat.format(match.count)}
 Avg: ${numberFormat.format(Math.round(match.stats.average))} ac
 Median: ${numberFormat.format(Math.round(match.stats.median))} ac
-Mode: ${modeText}
 Min-Max: ${numberFormat.format(Math.round(match.stats.min))} - ${numberFormat.format(Math.round(match.stats.max))} ac`,
       event.clientX,
       event.clientY
     );
+  }
+
+  if (config.type === "map") {
+    if (x < config.left || x > config.right || y < config.top || y > config.bottom) {
+      hideTooltip();
+      return;
+    }
+    showTooltip(`Mapped fires in filter: ${numberFormat.format(config.points.length)}`, event.clientX, event.clientY);
   }
 }
 
@@ -895,6 +1110,14 @@ function mapRow(row) {
   if (!Number.isFinite(year)) return null;
 
   const date = parseDate(row.StartDate);
+  const outDate = parseDate(row.OutDate);
+  let durationDays = null;
+  if (date && outDate) {
+    const msDiff = outDate.getTime() - date.getTime();
+    if (msDiff >= 0) {
+      durationDays = Math.round(msDiff / 86400000);
+    }
+  }
   return {
     year,
     fireName: normalize(row.FireName),
@@ -905,6 +1128,8 @@ function mapRow(row) {
     fireUse: normalize(row.FireUse),
     acres: Number.isFinite(Number.parseFloat(row.GIS_Acres)) ? Number.parseFloat(row.GIS_Acres) : 0,
     startDate: date,
+    outDate,
+    durationDays,
     month: date ? date.getMonth() + 1 : null,
     lat: Number.parseFloat(row.LatNAD83),
     lon: Number.parseFloat(row.LongNAD83)
@@ -1009,7 +1234,7 @@ function isPrescribedRecord(record) {
 
 function computeSizeStats(values) {
   if (!values.length) {
-    return { average: 0, stdDev: 0, min: 0, median: 0, mode: Number.NaN, max: 0 };
+    return { average: 0, stdDev: 0, min: 0, median: 0, max: 0 };
   }
   const average = sum(values) / values.length;
   const variance = values.reduce((acc, value) => {
@@ -1019,9 +1244,8 @@ function computeSizeStats(values) {
   const stdDev = Math.sqrt(Math.max(0, variance));
   const min = Math.min(...values);
   const median = computeMedian(values);
-  const mode = computeRoundedMode(values);
   const max = Math.max(...values);
-  return { average, stdDev, min, median, mode, max };
+  return { average, stdDev, min, median, max };
 }
 
 function computeMedian(values) {
@@ -1031,27 +1255,6 @@ function computeMedian(values) {
   return sorted.length % 2 === 0
     ? (sorted[mid - 1] + sorted[mid]) / 2
     : sorted[mid];
-}
-
-function computeRoundedMode(values) {
-  if (!values.length) return Number.NaN;
-  const counts = new Map();
-  values.forEach((value) => {
-    const rounded = Math.round(value);
-    counts.set(rounded, (counts.get(rounded) || 0) + 1);
-  });
-
-  let bestValue = Number.NaN;
-  let bestCount = 0;
-  counts.forEach((count, rounded) => {
-    if (count > bestCount || (count === bestCount && rounded < bestValue)) {
-      bestCount = count;
-      bestValue = rounded;
-    }
-  });
-
-  if (bestCount < 2) return Number.NaN;
-  return bestValue;
 }
 
 function normalize(value) {
